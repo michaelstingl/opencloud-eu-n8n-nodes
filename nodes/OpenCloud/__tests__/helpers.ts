@@ -7,10 +7,13 @@ import nock from 'nock';
 import axios, { type AxiosRequestConfig, type ResponseType } from 'axios';
 import https from 'node:https';
 import type {
+	IDataObject,
 	IExecuteFunctions,
 	IHttpRequestOptions,
 	ILoadOptionsFunctions,
 	INode,
+	IPollFunctions,
+	WorkflowExecuteMode,
 } from 'n8n-workflow';
 
 /**
@@ -242,6 +245,48 @@ export function makeLoadOptionsFunctions(opts: {
 	};
 
 	return { fns, requestSpy };
+}
+
+/**
+ * Builds a mocked IPollFunctions for testing a polling trigger's poll() method.
+ * Same axios-backed request spy as the other factories (nock intercepts at the
+ * wire). `mode` selects manual vs scheduled; `staticData` is the persisted
+ * workflow static-data object — pass the SAME object across poll() calls to
+ * exercise de-duplication across runs.
+ */
+export function makePollFunctions(opts: {
+	parameters: Record<string, unknown>;
+	mode?: WorkflowExecuteMode;
+	staticData?: IDataObject;
+}) {
+	const fns = mock<IPollFunctions>();
+	const staticData: IDataObject = opts.staticData ?? {};
+
+	fns.getNodeParameter.mockImplementation(
+		(name: string, _index?: unknown, fallback?: unknown) =>
+			name in opts.parameters ? opts.parameters[name] : fallback,
+	);
+	fns.getMode.mockReturnValue(opts.mode ?? 'trigger');
+	fns.getWorkflowStaticData.mockReturnValue(staticData);
+	fns.getCredentials.mockResolvedValue(credentials);
+	fns.getNode.mockReturnValue({
+		id: 'test-node',
+		name: 'OpenCloud Trigger',
+		type: '@opencloud-eu/n8n-nodes-opencloud.openCloudTrigger',
+		typeVersion: 1,
+		position: [0, 0],
+		parameters: {},
+	} as INode);
+
+	const requestSpy = buildRequestSpy();
+	const helpers = {
+		httpRequestWithAuthentication: requestSpy,
+		returnJsonArray: (items: IDataObject | IDataObject[]) =>
+			(Array.isArray(items) ? items : [items]).map((json) => ({ json })),
+	};
+	(fns as unknown as { helpers: typeof helpers }).helpers = helpers;
+
+	return { fns, requestSpy, staticData };
 }
 
 /**

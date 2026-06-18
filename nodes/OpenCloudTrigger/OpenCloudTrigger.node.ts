@@ -97,9 +97,10 @@ export class OpenCloudTrigger implements INodeType {
 			true,
 		)) as ActivitiesResponse;
 
-		const activities = (response.value ?? [])
-			.filter((a) => a.times?.recordedTime)
-			.sort((a, b) => (a.times!.recordedTime! < b.times!.recordedTime! ? -1 : 1));
+		// Need an id for robust de-duplication (two activities can share a recordedTime).
+		const activities = (response.value ?? []).filter(
+			(a): a is Activity & { id: string } => typeof a.id === 'string' && a.id.length > 0,
+		);
 
 		const decorate = (a: Activity): IDataObject => ({
 			event: MESSAGE_TO_EVENT.get(a.template?.message ?? '') ?? 'other',
@@ -121,24 +122,28 @@ export class OpenCloudTrigger implements INodeType {
 			return items.length ? [this.helpers.returnJsonArray(items)] : null;
 		}
 
+		// De-dup by activity id, not by timestamp: the activitylog can record several
+		// activities at the same recordedTime (observed: ms-near uploads), so a
+		// `recordedTime > last` window would drop or double events at the boundary.
+		// Keep a bounded set of already-emitted ids instead.
+		const MAX_SEEN = 1000; // >> the server's activity window, so a still-returned id is never forgotten
 		const staticData = this.getWorkflowStaticData('node');
-		const lastRecordedTime = staticData.lastRecordedTime as string | undefined;
-		const newest = activities.length ? activities[activities.length - 1].times!.recordedTime! : undefined;
 
-		// First scheduled poll after activation: set the baseline and emit nothing,
-		// so activation does not replay the whole history.
-		if (lastRecordedTime === undefined) {
-			if (newest) staticData.lastRecordedTime = newest;
+		// First scheduled poll after activation: baseline everything currently present
+		// (so activation does not replay history) and emit nothing.
+		if (staticData.seenIds === undefined) {
+			staticData.seenIds = activities.map((a) => a.id).slice(-MAX_SEEN);
 			return null;
 		}
 
-		const fresh = activities
-			.filter((a) => a.times!.recordedTime! > lastRecordedTime)
-			.filter(matches)
-			.map(decorate);
+		const seen = new Set(staticData.seenIds as string[]);
+		const fresh = activities.filter((a) => !seen.has(a.id));
+		const emit = fresh.filter(matches).map(decorate);
 
-		if (newest && newest > lastRecordedTime) staticData.lastRecordedTime = newest;
+		// Mark every newly-seen activity (matching or not) as seen; keep it bounded.
+		for (const a of fresh) seen.add(a.id);
+		staticData.seenIds = Array.from(seen).slice(-MAX_SEEN);
 
-		return fresh.length ? [this.helpers.returnJsonArray(fresh)] : null;
+		return emit.length ? [this.helpers.returnJsonArray(emit)] : null;
 	}
 }
