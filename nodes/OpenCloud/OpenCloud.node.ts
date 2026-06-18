@@ -464,6 +464,23 @@ export class OpenCloud implements INodeType {
 				},
 			},
 			{
+				displayName: 'Space Name or ID',
+				name: 'spaceId',
+				type: 'options',
+				typeOptions: {
+					loadOptionsMethod: 'getSpaces',
+				},
+				default: '',
+				required: true,
+				description: 'The space whose members to list. Choose from the list, or specify an ID using an expression. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				displayOptions: {
+					show: {
+						resource: ['space'],
+						operation: ['listMembers'],
+					},
+				},
+			},
+			{
 				displayName: 'Path',
 				name: 'path',
 				type: 'string',
@@ -989,7 +1006,7 @@ export class OpenCloud implements INodeType {
 						});
 					}
 					} else if (resource === 'space' && operation === 'listMembers') {
-						const driveId = this.getNodeParameter('space', i) as string;
+						const driveId = this.getNodeParameter('spaceId', i) as string;
 						const permsResponse = (await openCloudApiRequest.call(
 							this,
 							'GET',

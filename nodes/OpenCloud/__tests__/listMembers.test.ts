@@ -20,7 +20,7 @@ describe('OpenCloud space:listMembers', () => {
 			});
 
 		const { fns } = makeExecuteFunctions({
-			parameters: { resource: 'space', operation: 'listMembers', space: fixtures.MOCK_DRIVE },
+			parameters: { resource: 'space', operation: 'listMembers', spaceId: fixtures.MOCK_DRIVE },
 		});
 		const result = (await node.execute.call(fns as never)) as Array<Array<{ json: IDataObject }>>;
 		const members = result[0].map((i) => i.json);
