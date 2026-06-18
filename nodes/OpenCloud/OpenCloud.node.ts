@@ -175,6 +175,12 @@ export class OpenCloud implements INodeType {
 						description: 'List all drives (Personal, Shares, Project) the authenticated user can see',
 						action: 'List spaces',
 					},
+						{
+							name: 'List Members',
+							value: 'listMembers',
+							description: 'List the users and groups with access to a space, with their roles (email is not exposed to non-admin tokens; resolve via a privileged User: Get if needed)',
+							action: 'List space members',
+						},
 					{
 						name: 'Share',
 						value: 'share',
@@ -982,7 +988,41 @@ export class OpenCloud implements INodeType {
 							pairedItem: { item: i },
 						});
 					}
-				} else if (resource === 'user' && operation === 'getAll') {
+					} else if (resource === 'space' && operation === 'listMembers') {
+						const driveId = this.getNodeParameter('space', i) as string;
+						const permsResponse = (await openCloudApiRequest.call(
+							this,
+							'GET',
+							`/graph/v1beta1/drives/${encodeURIComponent(driveId)}/root/permissions`,
+							'',
+							{},
+							true,
+						)) as {
+							value?: Array<{
+								grantedToV2?: {
+									user?: { id?: string; displayName?: string };
+									group?: { id?: string; displayName?: string };
+								};
+								roles?: string[];
+							}>;
+						};
+
+						// Membership (user/group + roles). Email is not in this response, and the user
+						// endpoint omits `mail` for non-admin tokens, so this does not resolve it.
+						for (const perm of permsResponse.value ?? []) {
+							const granted = perm.grantedToV2 ?? {};
+							const principal = granted.group ?? granted.user ?? {};
+							returnData.push({
+								json: {
+									type: granted.group !== undefined ? 'group' : 'user',
+									id: principal.id,
+									displayName: principal.displayName,
+									roles: perm.roles ?? [],
+								},
+								pairedItem: { item: i },
+							});
+						}
+									} else if (resource === 'user' && operation === 'getAll') {
 					const response = (await openCloudApiRequest.call(
 						this,
 						'GET',
