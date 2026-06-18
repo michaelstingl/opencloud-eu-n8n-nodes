@@ -262,9 +262,17 @@ export function makePollFunctions(opts: {
 	const fns = mock<IPollFunctions>();
 	const staticData: IDataObject = opts.staticData ?? {};
 
+	// IPollFunctions.getNodeParameter signature is (name, fallback?, options?) — no
+	// itemIndex. Mirror n8n's extractValue unwrap of a resourceLocator value.
 	fns.getNodeParameter.mockImplementation(
-		(name: string, _index?: unknown, fallback?: unknown) =>
-			name in opts.parameters ? opts.parameters[name] : fallback,
+		(name: string, fallback?: unknown, options?: { extractValue?: boolean }) => {
+			if (!(name in opts.parameters)) return fallback;
+			const raw = opts.parameters[name];
+			if (options?.extractValue && raw !== null && typeof raw === 'object' && (raw as { __rl?: boolean }).__rl === true) {
+				return (raw as { value?: unknown }).value;
+			}
+			return raw;
+		},
 	);
 	fns.getMode.mockReturnValue(opts.mode ?? 'trigger');
 	fns.getWorkflowStaticData.mockReturnValue(staticData);

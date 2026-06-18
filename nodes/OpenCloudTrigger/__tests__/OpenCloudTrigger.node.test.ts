@@ -2,7 +2,15 @@
 import { describe, expect } from 'vitest';
 import type { IDataObject } from 'n8n-workflow';
 import { OpenCloudTrigger } from '../OpenCloudTrigger.node';
-import { makePollFunctions, fixtures, nock, isolateNetwork, mockOnly } from '../../OpenCloud/__tests__/helpers';
+import {
+	makePollFunctions,
+	makeLoadOptionsFunctions,
+	nockMeDrives,
+	fixtures,
+	nock,
+	isolateNetwork,
+	mockOnly,
+} from '../../OpenCloud/__tests__/helpers';
 
 // English activity templates (the node requests Accept-Language: en).
 const ADDED = '{user} added {resource} to {folder}';
@@ -91,5 +99,13 @@ describe('OpenCloudTrigger.poll', () => {
 		nockActivities([activity('a', ADDED, '2026-01-01T00:00:00Z'), activity('b', ADDED, '2026-01-01T00:00:01Z')]);
 		const items = await poll(staticData, {}, 'manual');
 		expect(items?.map((i) => i.id).sort()).toEqual(['a', 'b']);
+	});
+
+	mockOnly.it('space picker (searchSpaces) lists drives as resource-locator results', async () => {
+		nockMeDrives();
+		const { fns } = makeLoadOptionsFunctions({});
+		const res = await node.methods.listSearch.searchSpaces.call(fns as never, '');
+		expect(res.results.map((r) => r.value)).toContain(fixtures.MOCK_DRIVE);
+		expect(res.results[0].name).toContain('Personal');
 	});
 });

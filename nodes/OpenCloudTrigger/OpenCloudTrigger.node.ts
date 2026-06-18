@@ -1,6 +1,8 @@
 import type {
 	IDataObject,
+	ILoadOptionsFunctions,
 	INodeExecutionData,
+	INodeListSearchResult,
 	INodeType,
 	INodeTypeDescription,
 	IPollFunctions,
@@ -60,13 +62,29 @@ export class OpenCloudTrigger implements INodeType {
 		],
 		properties: [
 			{
-				displayName: 'Space ID',
+				displayName: 'Space',
 				name: 'spaceId',
-				type: 'string',
-				default: '',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
 				required: true,
-				placeholder: '6075b3aa-...$7cb63fc5-...',
-				description: 'The space root ID, used as the KQL itemid. For a project space this equals the drive ID, of the form storageId$spaceId. One trigger watches one space.',
+				description: 'The space to watch. Pick from the list, or paste its root ID (the drive ID, of the form storageId$spaceId). One trigger watches one space.',
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						typeOptions: {
+							searchListMethod: 'searchSpaces',
+							searchable: true,
+						},
+					},
+					{
+						displayName: 'By ID',
+						name: 'id',
+						type: 'string',
+						placeholder: '6075b3aa-...$7cb63fc5-...',
+					},
+				],
 			},
 			{
 				displayName: 'Events',
@@ -80,8 +98,27 @@ export class OpenCloudTrigger implements INodeType {
 		usableAsTool: true,
 	};
 
+	methods = {
+		listSearch: {
+			// Populate the Space picker from the drives the credential can see.
+			async searchSpaces(
+				this: ILoadOptionsFunctions,
+				filter?: string,
+			): Promise<INodeListSearchResult> {
+				const response = (await openCloudApiRequest.call(this, 'GET', '/graph/v1.0/me/drives', '', {}, true)) as {
+					value?: Array<{ id?: string; name?: string; driveType?: string }>;
+				};
+				const term = (filter ?? '').trim().toLowerCase();
+				const results = (response.value ?? [])
+					.filter((d) => d.id && (term === '' || (d.name ?? '').toLowerCase().includes(term)))
+					.map((d) => ({ name: `${d.name ?? d.id} (${d.driveType ?? 'drive'})`, value: d.id as string }));
+				return { results };
+			},
+		},
+	};
+
 	async poll(this: IPollFunctions): Promise<INodeExecutionData[][] | null> {
-		const spaceId = (this.getNodeParameter('spaceId') as string).trim();
+		const spaceId = (this.getNodeParameter('spaceId', undefined, { extractValue: true }) as string).trim();
 		const events = this.getNodeParameter('events', []) as string[];
 		const isManual = this.getMode() === 'manual';
 
