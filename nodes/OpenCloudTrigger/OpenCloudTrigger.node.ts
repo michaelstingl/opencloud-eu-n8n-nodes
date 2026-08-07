@@ -175,6 +175,13 @@ export class OpenCloudTrigger implements INodeType {
 		// (so activation does not replay history) and emit nothing.
 		if (staticData.seenIds === undefined) {
 			staticData.seenIds = currentIds;
+			// `info`, not `debug`: this happens once per activation and it is the answer to
+			// "why did nothing arrive right after I turned it on?" — a question that is
+			// otherwise indistinguishable from a broken trigger.
+			this.logger?.info('OpenCloud Trigger: baselined on activation, emitting nothing', {
+				spaceId,
+				baselined: currentIds.length,
+			});
 			return null;
 		}
 
@@ -194,7 +201,34 @@ export class OpenCloudTrigger implements INodeType {
 			this.logger?.warn(
 				'OpenCloud Trigger: new activities found but none matched the event filter. ' +
 					'The activitylog template strings may have changed upstream.',
+				{ spaceId, window: activities.length, fresh: fresh.length, events },
 			);
+		}
+
+		// Every poll leaves a trace, so a silent pipeline can be told apart from an idle one.
+		// `debug` because this fires once per poll per space — during office hours that is
+		// ~720 lines/day/space, which at `info` would bury everything else. The deployed
+		// container runs at `info`; raise N8N_LOG_LEVEL ad hoc when a poll needs inspecting.
+		this.logger?.debug('OpenCloud Trigger: poll', {
+			spaceId,
+			window: activities.length,
+			fresh: fresh.length,
+			matched: emit.length,
+			events,
+		});
+
+		// The one thing worth an `info` line: activities were actually handed on. This is
+		// the node-side counterpart of the workflow's `mailbox_notify` line — it says the
+		// trigger emitted, that one says a mail was built for a specific file. Both are
+		// queries rather than alerts: absence means "nothing was uploaded" just as often
+		// as it means "something is broken".
+		if (emit.length > 0) {
+			this.logger?.info('OpenCloud Trigger: emitting activities', {
+				spaceId,
+				matched: emit.length,
+				fresh: fresh.length,
+				window: activities.length,
+			});
 		}
 
 		return emit.length ? [this.helpers.returnJsonArray(emit)] : null;

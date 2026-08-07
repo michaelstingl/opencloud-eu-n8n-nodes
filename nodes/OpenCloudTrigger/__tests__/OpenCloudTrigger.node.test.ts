@@ -128,6 +128,37 @@ describe('OpenCloudTrigger.poll', () => {
 		expect(requestSpy.mock.calls[0][1].url).toContain(encodeURIComponent(`itemid:"${SPACE}"`));
 	});
 
+	// The logging is the deploy-side reason this branch exists: without it a silent
+	// pipeline and an idle one look identical in Loki. A log line that quietly stops
+	// firing would recreate exactly that blindness, so assert the lines rather than
+	// trusting that `this.logger?.` resolved to something.
+	mockOnly.it('logs: info on emit, info on baseline, warn on template drift', async () => {
+		const loggerOf = (fns: unknown) =>
+			(fns as { logger: Record<string, { mock: { calls: unknown[][] } }> }).logger;
+
+		// 1. emitting -> info, with the counts
+		let h = makePollFunctions({ parameters: { spaceId: SPACE, events: [] }, staticData: { seenIds: ['a'] } });
+		nockActivities([activity('a', ADDED, '2026-01-01T00:00:00Z'), activity('b', ADDED, '2026-01-01T00:00:01Z')]);
+		await node.poll.call(h.fns as never);
+		expect(loggerOf(h.fns).info.mock.calls[0][0]).toContain('emitting activities');
+		expect(loggerOf(h.fns).info.mock.calls[0][1]).toMatchObject({ spaceId: SPACE, matched: 1 });
+
+		// 2. activation baseline -> info, and NOT the emit line
+		h = makePollFunctions({ parameters: { spaceId: SPACE, events: [] }, staticData: {} });
+		nockActivities([activity('a', ADDED, '2026-01-01T00:00:00Z')]);
+		await node.poll.call(h.fns as never);
+		expect(loggerOf(h.fns).info.mock.calls[0][0]).toContain('baselined on activation');
+		expect(loggerOf(h.fns).info.mock.calls).toHaveLength(1);
+
+		// 3. fresh activities, none matching the filter -> the drift warning, with counts
+		h = makePollFunctions({ parameters: { spaceId: SPACE, events: ['fileAdded'] }, staticData: { seenIds: [] } });
+		nockActivities([activity('z', '{user} invented a template', '2026-01-01T00:00:00Z')]);
+		await node.poll.call(h.fns as never);
+		expect(loggerOf(h.fns).warn.mock.calls[0][0]).toContain('none matched the event filter');
+		expect(loggerOf(h.fns).warn.mock.calls[0][1]).toMatchObject({ fresh: 1 });
+		expect(loggerOf(h.fns).info.mock.calls).toHaveLength(0);
+	});
+
 	mockOnly.it('maps unknown templates to "other": emitted unfiltered, excluded when filtered', async () => {
 		const UNKNOWN = '{user} did something new with {resource}';
 		// no filter -> emitted with event "other"
